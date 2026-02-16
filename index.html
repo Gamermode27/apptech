@@ -62,17 +62,13 @@
       const moodKeywords = {
         happy: ["happy", "excited", "great", "good", "proud", "grateful", "joy", "love", "relaxed", "fun", "calm", "content"],
         neutral: ["okay", "fine", "normal", "meh", "average", "steady"],
-        stressed: ["stressed", "overwhelmed", "anxious", "worried", "pressure", "tired", "busy"],
-        sad: ["sad", "down", "lonely", "hurt", "cry", "upset", "hopeless", "empty"],
-        angry: ["angry", "mad", "furious", "annoyed", "frustrated", "rage"]
+        sad: ["sad", "down", "lonely", "hurt", "cry", "upset", "hopeless", "empty"]
       };
 
       const moodScores = {
         happy: 0.7,
         neutral: 0,
-        stressed: -0.3,
-        sad: -0.6,
-        angry: -0.8
+        sad: -0.6
       };
 
       const crisisKeywords = [
@@ -137,9 +133,7 @@
       const moodExerciseMap = {
         happy: ["stretch-reset", "ground-5-4-3-2-1"],
         neutral: ["breath-4-6"],
-        stressed: ["breath-4-6", "body-scan"],
-        sad: ["self-kindness", "ground-5-4-3-2-1"],
-        angry: ["cool-down", "breath-4-6"]
+        sad: ["self-kindness", "ground-5-4-3-2-1", "body-scan"]
       };
 
       const state = {
@@ -538,7 +532,7 @@
           return null;
         }
         const keywords = extractKeywords(text);
-        const moodLabel = score >= 0.3 ? "happy" : score <= -0.6 ? "sad" : score < 0 ? "stressed" : "neutral";
+        const moodLabel = score >= 0.3 ? "happy" : score <= -0.2 ? "sad" : "neutral";
         return {
           moodLabel,
           moodScore: clamp(score, -1, 1),
@@ -722,15 +716,9 @@
           return result;
         }
         const mergedKeywords = Array.from(new Set([...(result.keywords || []), ...distressMatches]));
-        if (result.moodLabel !== "neutral" && typeof result.moodScore === "number" && result.moodScore < 0) {
-          return {
-            ...result,
-            keywords: mergedKeywords
-          };
-        }
         return {
           ...result,
-          moodLabel: "stressed",
+          moodLabel: "sad",
           moodScore: Math.min(result.moodScore ?? 0, -0.4),
           keywords: mergedKeywords
         };
@@ -840,18 +828,9 @@
           return "neutral";
         }
         if (type === "negative") {
-          return polarity <= -0.6 ? "sad" : "stressed";
+          return polarity <= -0.2 ? "sad" : "neutral";
         }
-        const keywordSet = new Set(keywords);
-        const hasAngry = moodKeywords.angry.some((word) => keywordSet.has(word));
-        if (hasAngry) {
-          return "angry";
-        }
-        const hasStressed = moodKeywords.stressed.some((word) => keywordSet.has(word));
-        if (hasStressed) {
-          return "stressed";
-        }
-        return polarity <= -0.6 ? "sad" : "stressed";
+        return polarity <= -0.2 ? "sad" : "neutral";
       }
 
       function formatSentimentSource(source) {
@@ -879,7 +858,7 @@
 
       function computeMoodScore(counts, label) {
         const positive = counts.happy || 0;
-        const negative = (counts.stressed || 0) + (counts.sad || 0) + (counts.angry || 0);
+        const negative = counts.sad || 0;
         const total = positive + negative;
         let score = total > 0 ? (positive - negative) / total : 0;
         const base = moodScores[label] ?? 0;
