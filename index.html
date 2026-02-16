@@ -13,6 +13,10 @@
         "https://sentim-api.onrender.com/api/v1/",
         "https://sentim-api.herokuapp.com/api/v1/"
       ];
+      const HF_SPACE_URLS = [
+        "https://cardiffnlp-twitter-roberta-base-sentiment.hf.space/api/predict",
+        "https://hf.space/embed/cardiffnlp/twitter-roberta-base-sentiment/api/predict"
+      ];
 
       const exercises = [
         {
@@ -114,6 +118,24 @@
         "i can't take it",
         "nothing matters",
         "no way out"
+      ];
+
+      const distressPatterns = [
+        "losing control",
+        "out of control",
+        "cant cope",
+        "can't cope",
+        "cant handle",
+        "can't handle",
+        "falling apart",
+        "spiraling",
+        "spiralling",
+        "panicking",
+        "panic attack",
+        "breaking down",
+        "numb",
+        "empty",
+        "overwhelmed"
       ];
 
       const moodExerciseMap = {
@@ -454,11 +476,48 @@
       }
 
       async function analyzeMoodWithApi(text) {
+        const hfResult = await analyzeMoodWithHfSpace(text);
+        if (hfResult) {
+          return {
+            ...applyCrisisOverride(applyDistressOverride(hfResult, text), text),
+            source: "hf-space"
+          };
+        }
         const sentimResult = await analyzeMoodWithSentim(text);
         if (sentimResult) {
-          return { ...applyCrisisOverride(sentimResult, text), source: "sentim" };
+          return {
+            ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
+            source: "sentim"
+          };
         }
-        return { ...applyCrisisOverride(analyzeMoodLocal(text), text), source: "local" };
+        return {
+          ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
+          source: "local"
+        };
+      }
+
+      async function analyzeMoodWithHfSpace(text) {
+        for (const url of HF_SPACE_URLS) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data: [text] })
+            });
+            if (!response.ok) {
+              continue;
+            }
+            const data = await response.json();
+            const parsed = parseHfResponse(data, text);
+            if (!parsed) {
+              continue;
+            }
+            return parsed;
+          } catch {
+            continue;
+          }
+        }
+        return null;
       }
 
       async function analyzeMoodWithSentim(text) {
@@ -539,6 +598,27 @@
         };
       }
 
+      function applyDistressOverride(result, text) {
+        const distressMatches = getDistressKeywords(text);
+        const hasDistress = distressMatches.length > 0;
+        if (!hasDistress) {
+          return result;
+        }
+        const mergedKeywords = Array.from(new Set([...(result.keywords || []), ...distressMatches]));
+        if (result.moodLabel !== "neutral" && typeof result.moodScore === "number" && result.moodScore < 0) {
+          return {
+            ...result,
+            keywords: mergedKeywords
+          };
+        }
+        return {
+          ...result,
+          moodLabel: "stressed",
+          moodScore: Math.min(result.moodScore ?? 0, -0.4),
+          keywords: mergedKeywords
+        };
+      }
+
       function extractKeywords(text) {
         const tokens = tokenize(text);
         const matched = [];
@@ -575,6 +655,66 @@
         return Array.from(new Set(matches));
       }
 
+      function getDistressKeywords(text) {
+        const lowered = text.toLowerCase();
+        const matches = [];
+        distressPatterns.forEach((phrase) => {
+          if (lowered.includes(phrase)) {
+            matches.push(phrase);
+          }
+        });
+        return Array.from(new Set(matches));
+      }
+
+      function parseHfResponse(payload, text) {
+        const data = payload?.data;
+        if (!Array.isArray(data) || data.length === 0) {
+          return null;
+        }
+        const first = data[0];
+        let candidates = [];
+        if (Array.isArray(first)) {
+          candidates = first;
+        } else if (typeof first === "object" && first !== null && Array.isArray(data)) {
+          candidates = data;
+        } else if (typeof first === "string" && typeof data[1] === "number") {
+          candidates = [{ label: first, score: data[1] }];
+        }
+        if (!Array.isArray(candidates) || candidates.length === 0) {
+          return null;
+        }
+        const best = candidates.reduce((top, current) => {
+          if (!current || typeof current.score !== "number") {
+            return top;
+          }
+          if (!top || current.score > top.score) {
+            return current;
+          }
+          return top;
+        }, null);
+        if (!best || !best.label) {
+          return null;
+        }
+        const label = String(best.label).toLowerCase();
+        const score = typeof best.score === "number" ? best.score : 0;
+        let type = "neutral";
+        if (label.includes("pos")) {
+          type = "positive";
+        } else if (label.includes("neg")) {
+          type = "negative";
+        } else if (label.includes("neu")) {
+          type = "neutral";
+        }
+        const polarity = type === "positive" ? score : type === "negative" ? -score : 0;
+        const keywords = extractKeywords(text) || [];
+        const moodLabel = mapSentimentToMood(type, polarity, keywords);
+        return {
+          moodLabel,
+          moodScore: clamp(polarity, -1, 1),
+          keywords
+        };
+      }
+
       function mapSentimentToMood(type, polarity, keywords) {
         if (type === "positive") {
           return "happy";
@@ -600,6 +740,9 @@
       function formatSentimentSource(source) {
         if (source === "sentim") {
           return "Sentim API";
+        }
+        if (source === "hf-space") {
+          return "Hugging Face Space";
         }
         if (source === "local") {
           return "offline analysis";
