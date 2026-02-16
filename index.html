@@ -75,6 +75,47 @@
         angry: -0.8
       };
 
+      const crisisKeywords = [
+        "suicidal",
+        "suicide",
+        "self-harm",
+        "self harm",
+        "kill myself",
+        "end my life",
+        "end it",
+        "ending it",
+        "overdose",
+        "cut myself",
+        "hurt myself",
+        "want to die",
+        "i want to die",
+        "dont want to be here",
+        "don't want to be here",
+        "cant go on",
+        "can't go on",
+        "no reason to live",
+        "no reason to stay",
+        "be better off without me",
+        "everyone would be better off",
+        "i'm done",
+        "im done",
+        "i give up",
+        "give up",
+        "goodbye"
+      ];
+
+      const crisisPatterns = [
+        "wish i was dead",
+        "wish i were dead",
+        "i should disappear",
+        "i should not exist",
+        "i want it to stop",
+        "i cant take it",
+        "i can't take it",
+        "nothing matters",
+        "no way out"
+      ];
+
       const moodExerciseMap = {
         happy: ["stretch-reset", "ground-5-4-3-2-1"],
         neutral: ["breath-4-6"],
@@ -171,6 +212,9 @@
           if (result.source === "local") {
             state.analysisNotice = "Sentiment API unavailable, used offline analysis.";
           }
+          if (result.crisis) {
+            state.analysisNotice = "If you feel unsafe, please reach out for help right now.";
+          }
           const exercise = pickExercise(result.moodLabel);
           const entry = {
             id: generateId(),
@@ -180,7 +224,8 @@
             moodScore: result.moodScore,
             keywords: result.keywords,
             exerciseId: exercise.id,
-            moodSource: result.source
+            moodSource: result.source,
+            crisisFlag: Boolean(result.crisis)
           };
           state.entries.unshift(entry);
           saveEntries(state.entries);
@@ -387,6 +432,9 @@
 
       function shouldShowHelp(entries) {
         const recent = entries.slice(0, 4);
+        if (recent.some((entry) => entry.crisisFlag)) {
+          return true;
+        }
         if (recent.length < 3) {
           return false;
         }
@@ -408,9 +456,9 @@
       async function analyzeMoodWithApi(text) {
         const sentimResult = await analyzeMoodWithSentim(text);
         if (sentimResult) {
-          return { ...sentimResult, source: "sentim" };
+          return { ...applyCrisisOverride(sentimResult, text), source: "sentim" };
         }
-        return { ...analyzeMoodLocal(text), source: "local" };
+        return { ...applyCrisisOverride(analyzeMoodLocal(text), text), source: "local" };
       }
 
       async function analyzeMoodWithSentim(text) {
@@ -475,6 +523,22 @@
         };
       }
 
+      function applyCrisisOverride(result, text) {
+        const crisisMatches = getCrisisKeywords(text);
+        const stronglyNegative = typeof result.moodScore === "number" && result.moodScore <= -0.85;
+        if (crisisMatches.length === 0 && !stronglyNegative) {
+          return result;
+        }
+        const mergedKeywords = Array.from(new Set([...(result.keywords || []), ...crisisMatches]));
+        return {
+          ...result,
+          moodLabel: "sad",
+          moodScore: -0.95,
+          keywords: mergedKeywords,
+          crisis: true
+        };
+      }
+
       function extractKeywords(text) {
         const tokens = tokenize(text);
         const matched = [];
@@ -488,12 +552,38 @@
         return Array.from(new Set(matched));
       }
 
+      function getCrisisKeywords(text) {
+        const lowered = text.toLowerCase();
+        const tokens = new Set(tokenize(text));
+        const matches = [];
+        if (tokens.has("suicidal")) {
+          matches.push("suicidal");
+        }
+        if (tokens.has("suicide")) {
+          matches.push("suicide");
+        }
+        crisisKeywords.forEach((phrase) => {
+          if (lowered.includes(phrase)) {
+            matches.push(phrase);
+          }
+        });
+        crisisPatterns.forEach((phrase) => {
+          if (lowered.includes(phrase)) {
+            matches.push(phrase);
+          }
+        });
+        return Array.from(new Set(matches));
+      }
+
       function mapSentimentToMood(type, polarity, keywords) {
         if (type === "positive") {
           return "happy";
         }
         if (type === "neutral") {
           return "neutral";
+        }
+        if (type === "negative") {
+          return polarity <= -0.6 ? "sad" : "stressed";
         }
         const keywordSet = new Set(keywords);
         const hasAngry = moodKeywords.angry.some((word) => keywordSet.has(word));
