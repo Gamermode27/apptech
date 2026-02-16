@@ -230,12 +230,17 @@
           state.analysisNotice = null;
           renderApp();
           const result = await analyzeMoodWithApi(text);
+          const notices = [];
+          if (result.hfError) {
+            notices.push(`HF Space failed (${result.hfError}).`);
+          }
           if (result.source === "local") {
-            state.analysisNotice = "Sentiment API unavailable, used offline analysis.";
+            notices.push("Sentiment API unavailable, used offline analysis.");
           }
           if (result.crisis) {
-            state.analysisNotice = "If you feel unsafe, please reach out for help right now.";
+            notices.push("If you feel unsafe, please reach out for help right now.");
           }
+          state.analysisNotice = notices.length > 0 ? notices.join(" ") : null;
           const exercise = pickExercise(result.moodLabel);
           const entry = {
             id: generateId(),
@@ -475,10 +480,10 @@
       }
 
       async function analyzeMoodWithApi(text) {
-        const hfResult = await analyzeMoodWithHfSpace(text);
-        if (hfResult) {
+        const hfAttempt = await analyzeMoodWithHfSpace(text);
+        if (hfAttempt.result) {
           return {
-            ...applyCrisisOverride(applyDistressOverride(hfResult, text), text),
+            ...applyCrisisOverride(applyDistressOverride(hfAttempt.result, text), text),
             source: "hf-space"
           };
         }
@@ -486,12 +491,14 @@
         if (sentimResult) {
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
-            source: "sentim"
+            source: "sentim",
+            hfError: hfAttempt.error || "unknown"
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
-          source: "local"
+          source: "local",
+          hfError: hfAttempt.error || "unknown"
         };
       }
 
@@ -504,19 +511,19 @@
               body: JSON.stringify({ data: [text] })
             });
             if (!response.ok) {
-              continue;
+              return { result: null, error: `HTTP ${response.status}` };
             }
             const data = await response.json();
             const parsed = parseHfResponse(data, text);
             if (!parsed) {
-              continue;
+              return { result: null, error: "unrecognized response" };
             }
-            return parsed;
-          } catch {
-            continue;
+            return { result: parsed, error: null };
+          } catch (error) {
+            return { result: null, error: error?.message || "network error" };
           }
         }
-        return null;
+        return { result: null, error: "no endpoints available" };
       }
 
       async function analyzeMoodWithSentim(text) {
