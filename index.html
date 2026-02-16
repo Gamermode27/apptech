@@ -517,7 +517,24 @@
       }
 
       function parsePuterScore(response, text) {
-        const raw = typeof response === "string" ? response : response?.message || response?.text || "";
+        let raw = "";
+        if (typeof response === "number") {
+          raw = String(response);
+        } else if (typeof response === "string") {
+          raw = response;
+        } else if (response && typeof response === "object") {
+          if (typeof response.message === "string") {
+            raw = response.message;
+          } else if (typeof response.text === "string") {
+            raw = response.text;
+          } else if (typeof response.content === "string") {
+            raw = response.content;
+          } else if (typeof response.result === "string") {
+            raw = response.result;
+          } else if (typeof response.result === "number") {
+            raw = String(response.result);
+          }
+        }
         if (!raw) {
           return null;
         }
