@@ -503,10 +503,10 @@
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
           return { result: null, error: "sdk unavailable" };
         }
-        const prompt = `You are a sentiment classifier for a teen journal app. Respond with strict JSON only. Required keys: moodLabel (happy|neutral|stressed|sad|angry), moodScore (-1 to 1), keywords (array of lowercase words). Text: """${text}"""`;
+        const prompt = `Return ONLY a single number between -1 and 1 representing sentiment (negative to positive). No extra text. Text: """${text}"""`;
         try {
           const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
-          const parsed = parsePuterResponse(response);
+          const parsed = parsePuterScore(response, text);
           if (!parsed) {
             return { result: null, error: "invalid response" };
           }
@@ -516,27 +516,21 @@
         }
       }
 
-      function parsePuterResponse(response) {
+      function parsePuterScore(response, text) {
         const raw = typeof response === "string" ? response : response?.message || response?.text || "";
         if (!raw) {
           return null;
         }
-        let data;
-        try {
-          const cleaned = raw.trim().replace(/^```json/i, "").replace(/```$/i, "").trim();
-          data = JSON.parse(cleaned);
-        } catch {
+        const match = raw.match(/-?\d+(\.\d+)?/);
+        if (!match) {
           return null;
         }
-        const moodLabel = typeof data.moodLabel === "string" ? data.moodLabel.toLowerCase() : null;
-        const score = Number.parseFloat(data.moodScore);
-        if (!moodLabel || !["happy", "neutral", "stressed", "sad", "angry"].includes(moodLabel)) {
-          return null;
-        }
+        const score = Number.parseFloat(match[0]);
         if (!Number.isFinite(score)) {
           return null;
         }
-        const keywords = Array.isArray(data.keywords) ? data.keywords.map((item) => String(item).toLowerCase()) : [];
+        const keywords = extractKeywords(text);
+        const moodLabel = score >= 0.3 ? "happy" : score <= -0.6 ? "sad" : score < 0 ? "stressed" : "neutral";
         return {
           moodLabel,
           moodScore: clamp(score, -1, 1),
