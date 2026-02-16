@@ -7,7 +7,7 @@
   </head>
   <body>
     <div id="app"></div>
-    <script src="https://js.puter.com/v2/"></script>
+    <!-- <script src="https://js.puter.com/v2/"></script> -->
     <script>
       const STORAGE_KEY = "teen-journal-entries";
       const SENTIMENT_API_URLS = [
@@ -222,10 +222,10 @@
           renderApp();
           const result = await analyzeMoodWithApi(text);
           const notices = [];
-          if (result.puterError) {
-            const detail = result.puterDebug ? ` ${result.puterDebug}` : "";
-            notices.push(`Puter AI failed (${result.puterError}).${detail}`);
-          }
+          // if (result.puterError) {
+          //   const detail = result.puterDebug ? ` ${result.puterDebug}` : "";
+          //   notices.push(`Puter AI failed (${result.puterError}).${detail}`);
+          // }
           if (result.source === "local") {
             notices.push("Sentiment API unavailable, used offline analysis.");
           }
@@ -472,30 +472,31 @@
       }
 
       async function analyzeMoodWithApi(text) {
-        const puterAttempt = await analyzeMoodWithPuter(text);
-        if (puterAttempt.result && !isLikelyNeutral(puterAttempt.result)) {
-          return {
-            ...applyCrisisOverride(applyDistressOverride(puterAttempt.result, text), text),
-            source: "puter"
-          };
-        }
+        // const puterAttempt = await analyzeMoodWithPuter(text);
+        // if (puterAttempt.result && !isLikelyNeutral(puterAttempt.result)) {
+        //   return {
+        //     ...applyCrisisOverride(applyDistressOverride(puterAttempt.result, text), text),
+        //     source: "puter"
+        //   };
+        // }
         const sentimResult = await analyzeMoodWithSentim(text);
         if (sentimResult) {
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
-            source: "sentim",
-            puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
-            puterDebug: puterAttempt.debug || ""
+            source: "sentim"
+            // puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
+            // puterDebug: puterAttempt.debug || ""
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
-          source: "local",
-          puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
-          puterDebug: puterAttempt.debug || ""
+          source: "local"
+          // puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
+          // puterDebug: puterAttempt.debug || ""
         };
       }
 
+      /*
       async function analyzeMoodWithPuter(text) {
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
           return { result: null, error: "sdk unavailable", debug: "No puter.ai.chat found" };
@@ -630,6 +631,7 @@
         }
         return `${text.slice(0, maxLength)}…`;
       }
+      */
 
       async function analyzeMoodWithSentim(text) {
         for (const url of SENTIMENT_API_URLS) {
@@ -837,9 +839,9 @@
         if (source === "sentim") {
           return "Sentim API";
         }
-        if (source === "puter") {
-          return "Puter AI";
-        }
+        // if (source === "puter") {
+        //   return "Puter AI";
+        // }
         if (source === "local") {
           return "offline analysis";
         }
