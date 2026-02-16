@@ -229,7 +229,8 @@
           const result = await analyzeMoodWithApi(text);
           const notices = [];
           if (result.puterError) {
-            notices.push(`Puter AI failed (${result.puterError}).`);
+            const detail = result.puterDebug ? ` ${result.puterDebug}` : "";
+            notices.push(`Puter AI failed (${result.puterError}).${detail}`);
           }
           if (result.source === "local") {
             notices.push("Sentiment API unavailable, used offline analysis.");
@@ -489,30 +490,32 @@
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
             source: "sentim",
-            puterError: puterAttempt.error || "unknown"
+            puterError: puterAttempt.error || "unknown",
+            puterDebug: puterAttempt.debug || ""
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
           source: "local",
-          puterError: puterAttempt.error || "unknown"
+          puterError: puterAttempt.error || "unknown",
+          puterDebug: puterAttempt.debug || ""
         };
       }
 
       async function analyzeMoodWithPuter(text) {
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
-          return { result: null, error: "sdk unavailable" };
+          return { result: null, error: "sdk unavailable", debug: "No puter.ai.chat found" };
         }
         const prompt = `Return ONLY a decimal number between -1 and 1 with two decimal places (example: -0.73). No extra text. Avoid 0 unless the text is truly neutral. Text: """${text}"""`;
         try {
           const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
           const parsed = parsePuterScore(response, text);
           if (!parsed) {
-            return { result: null, error: "invalid response" };
+            return { result: null, error: "invalid response", debug: summarizePuterResponse(response) };
           }
-          return { result: parsed, error: null };
+          return { result: parsed, error: null, debug: "" };
         } catch (error) {
-          return { result: null, error: error?.message || "request failed" };
+          return { result: null, error: error?.message || "request failed", debug: "" };
         }
       }
 
@@ -588,6 +591,38 @@
           }
         }
         return "";
+      }
+
+      function summarizePuterResponse(response) {
+        if (response === null || response === undefined) {
+          return "No response payload";
+        }
+        if (typeof response === "string") {
+          return `Raw: ${truncateText(response, 180)}`;
+        }
+        if (typeof response === "number") {
+          return `Raw: ${response}`;
+        }
+        if (typeof response === "object") {
+          const extracted = extractPuterText(response);
+          if (extracted) {
+            return `Raw: ${truncateText(extracted, 180)}`;
+          }
+          try {
+            const json = JSON.stringify(response);
+            return `Raw: ${truncateText(json, 180)}`;
+          } catch {
+            return "Raw: [unserializable object]";
+          }
+        }
+        return "Raw: [unknown]";
+      }
+
+      function truncateText(text, maxLength) {
+        if (!text || text.length <= maxLength) {
+          return text;
+        }
+        return `${text.slice(0, maxLength)}…`;
       }
 
       async function analyzeMoodWithSentim(text) {
