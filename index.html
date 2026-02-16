@@ -503,7 +503,7 @@
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
           return { result: null, error: "sdk unavailable" };
         }
-        const prompt = `Return ONLY a single number between -1 and 1 representing sentiment (negative to positive). No extra text. Text: """${text}"""`;
+        const prompt = `Return ONLY a decimal number between -1 and 1 with two decimal places (example: -0.73). No extra text. Avoid 0 unless the text is truly neutral. Text: """${text}"""`;
         try {
           const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
           const parsed = parsePuterScore(response, text);
@@ -535,6 +535,10 @@
             raw = response.result;
           } else if (typeof response.result === "number") {
             raw = String(response.result);
+          } else if (typeof response.score === "number") {
+            raw = String(response.score);
+          } else if (typeof response.value === "number") {
+            raw = String(response.value);
           } else if (Array.isArray(response.choices)) {
             const first = response.choices[0];
             if (typeof first?.message?.content === "string") {
@@ -542,13 +546,6 @@
             } else if (typeof first?.text === "string") {
               raw = first.text;
             }
-          }
-        }
-        if (!raw && response && typeof response === "object") {
-          try {
-            raw = JSON.stringify(response);
-          } catch {
-            raw = "";
           }
         }
         if (!raw) {
