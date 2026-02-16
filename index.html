@@ -7,16 +7,13 @@
   </head>
   <body>
     <div id="app"></div>
+    <script src="https://js.puter.com/v2/"></script>
     <script>
       const STORAGE_KEY = "teen-journal-entries";
       const SENTIMENT_API_URLS = [
         "https://sentim-api.onrender.com/api/v1/",
         "https://sentim-api.herokuapp.com/api/v1/"
       ];
-      const HF_SPACE_URLS = [
-        "https://huggingface.co/spaces/AbdulWahab70/emotion-detection-sentiment"
-      ];
-
       const exercises = [
         {
           id: "breath-4-6",
@@ -230,17 +227,12 @@
           state.analysisNotice = null;
           renderApp();
           const result = await analyzeMoodWithApi(text);
-          const notices = [];
-          if (result.hfError) {
-            notices.push(`HF Space failed (${result.hfError}).`);
-          }
           if (result.source === "local") {
-            notices.push("Sentiment API unavailable, used offline analysis.");
+            state.analysisNotice = "Sentiment API unavailable, used offline analysis.";
           }
           if (result.crisis) {
-            notices.push("If you feel unsafe, please reach out for help right now.");
+            state.analysisNotice = "If you feel unsafe, please reach out for help right now.";
           }
-          state.analysisNotice = notices.length > 0 ? notices.join(" ") : null;
           const exercise = pickExercise(result.moodLabel);
           const entry = {
             id: generateId(),
@@ -480,50 +472,69 @@
       }
 
       async function analyzeMoodWithApi(text) {
-        const hfAttempt = await analyzeMoodWithHfSpace(text);
-        if (hfAttempt.result) {
+        const puterResult = await analyzeMoodWithPuter(text);
+        if (puterResult) {
           return {
-            ...applyCrisisOverride(applyDistressOverride(hfAttempt.result, text), text),
-            source: "hf-space"
+            ...applyCrisisOverride(applyDistressOverride(puterResult, text), text),
+            source: "puter"
           };
         }
         const sentimResult = await analyzeMoodWithSentim(text);
         if (sentimResult) {
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
-            source: "sentim",
-            hfError: hfAttempt.error || "unknown"
+            source: "sentim"
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
-          source: "local",
-          hfError: hfAttempt.error || "unknown"
+          source: "local"
         };
       }
 
-      async function analyzeMoodWithHfSpace(text) {
-        for (const url of HF_SPACE_URLS) {
-          try {
-            const response = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ data: [text] })
-            });
-            if (!response.ok) {
-              return { result: null, error: `HTTP ${response.status}` };
-            }
-            const data = await response.json();
-            const parsed = parseHfResponse(data, text);
-            if (!parsed) {
-              return { result: null, error: "unrecognized response" };
-            }
-            return { result: parsed, error: null };
-          } catch (error) {
-            return { result: null, error: error?.message || "network error" };
-          }
+      async function analyzeMoodWithPuter(text) {
+        if (typeof puter === "undefined" || !puter?.ai?.chat) {
+          return null;
         }
-        return { result: null, error: "no endpoints available" };
+        const prompt = `You are a sentiment classifier for a teen journal app. Respond with strict JSON only. Required keys: moodLabel (happy|neutral|stressed|sad|angry), moodScore (-1 to 1), keywords (array of lowercase words). Text: """${text}"""`;
+        try {
+          const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
+          const parsed = parsePuterResponse(response);
+          if (!parsed) {
+            return null;
+          }
+          return parsed;
+        } catch {
+          return null;
+        }
+      }
+
+      function parsePuterResponse(response) {
+        const raw = typeof response === "string" ? response : response?.message || response?.text || "";
+        if (!raw) {
+          return null;
+        }
+        let data;
+        try {
+          const cleaned = raw.trim().replace(/^```json/i, "").replace(/```$/i, "").trim();
+          data = JSON.parse(cleaned);
+        } catch {
+          return null;
+        }
+        const moodLabel = typeof data.moodLabel === "string" ? data.moodLabel.toLowerCase() : null;
+        const score = Number.parseFloat(data.moodScore);
+        if (!moodLabel || !["happy", "neutral", "stressed", "sad", "angry"].includes(moodLabel)) {
+          return null;
+        }
+        if (!Number.isFinite(score)) {
+          return null;
+        }
+        const keywords = Array.isArray(data.keywords) ? data.keywords.map((item) => String(item).toLowerCase()) : [];
+        return {
+          moodLabel,
+          moodScore: clamp(score, -1, 1),
+          keywords
+        };
       }
 
       async function analyzeMoodWithSentim(text) {
@@ -747,8 +758,8 @@
         if (source === "sentim") {
           return "Sentim API";
         }
-        if (source === "hf-space") {
-          return "Hugging Face Space";
+        if (source === "puter") {
+          return "Puter AI";
         }
         if (source === "local") {
           return "offline analysis";
