@@ -9,7 +9,10 @@
     <div id="app"></div>
     <script>
       const STORAGE_KEY = "teen-journal-entries";
-      const SENTIMENT_API_URL = "https://sentim-api.herokuapp.com/api/v1/";
+      const SENTIMENT_API_URLS = [
+        "https://sentim-api.onrender.com/api/v1/",
+        "https://sentim-api.herokuapp.com/api/v1/"
+      ];
 
       const exercises = [
         {
@@ -406,28 +409,41 @@
       }
 
       async function analyzeMoodWithSentim(text) {
-        try {
-          const response = await fetch(SENTIMENT_API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text })
-          });
-          const data = await response.json();
-          const polarity = Number.parseFloat(data?.result?.polarity);
-          const type = data?.result?.type;
-          if (!Number.isFinite(polarity) || !type) {
-            return null;
+        for (const url of SENTIMENT_API_URLS) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text })
+            });
+            if (!response.ok) {
+              continue;
+            }
+            const contentType = response.headers.get("content-type") || "";
+            let data;
+            if (contentType.includes("application/json")) {
+              data = await response.json();
+            } else {
+              const raw = await response.text();
+              data = JSON.parse(raw);
+            }
+            const polarity = Number.parseFloat(data?.result?.polarity);
+            const type = data?.result?.type;
+            if (!Number.isFinite(polarity) || !type) {
+              continue;
+            }
+            const keywords = extractKeywords(text);
+            const moodLabel = mapSentimentToMood(type, polarity, keywords);
+            return {
+              moodLabel,
+              moodScore: clamp(polarity, -1, 1),
+              keywords
+            };
+          } catch {
+            continue;
           }
-          const keywords = extractKeywords(text);
-          const moodLabel = mapSentimentToMood(type, polarity, keywords);
-          return {
-            moodLabel,
-            moodScore: clamp(polarity, -1, 1),
-            keywords
-          };
-        } catch {
-          return null;
         }
+        return null;
       }
 
 
