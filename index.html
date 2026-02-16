@@ -10,9 +10,6 @@
     <script>
       const STORAGE_KEY = "teen-journal-entries";
       const SENTIMENT_API_URL = "https://sentim-api.herokuapp.com/api/v1/";
-      const OPENAI_API_URL = "https://api.openai.com/v1/responses";
-      const OPENAI_MODEL = "gpt-4o-mini";
-      const OPENAI_KEY_STORAGE = "OPENAI_API_KEY";
 
       const exercises = [
         {
@@ -401,13 +398,6 @@
       }
 
       async function analyzeMoodWithApi(text) {
-        const openAiKey = getOpenAiKey();
-        if (openAiKey) {
-          const openAiResult = await analyzeMoodWithOpenAi(text, openAiKey);
-          if (openAiResult) {
-            return { ...openAiResult, source: "openai" };
-          }
-        }
         const sentimResult = await analyzeMoodWithSentim(text);
         if (sentimResult) {
           return { ...sentimResult, source: "sentim" };
@@ -440,71 +430,6 @@
         }
       }
 
-      async function analyzeMoodWithOpenAi(text, apiKey) {
-        try {
-          const response = await fetch(OPENAI_API_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-              model: OPENAI_MODEL,
-              input: [
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "input_text",
-                      text: "Analyze the sentiment of this teen journal entry and respond with JSON that matches the schema."
-                    },
-                    { type: "input_text", text }
-                  ]
-                }
-              ],
-              response_format: {
-                type: "json_schema",
-                json_schema: {
-                  name: "sentiment",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      moodLabel: {
-                        type: "string",
-                        enum: ["happy", "neutral", "stressed", "sad", "angry"]
-                      },
-                      moodScore: { type: "number" },
-                      keywords: { type: "array", items: { type: "string" } }
-                    },
-                    required: ["moodLabel", "moodScore", "keywords"],
-                    additionalProperties: false
-                  },
-                  strict: true
-                }
-              }
-            })
-          });
-          const data = await response.json();
-          const outputText =
-            data?.output_text ||
-            data?.output?.[0]?.content?.[0]?.text ||
-            data?.choices?.[0]?.message?.content;
-          if (!outputText) {
-            return null;
-          }
-          const parsed = JSON.parse(outputText);
-          if (!parsed || !parsed.moodLabel || !Number.isFinite(parsed.moodScore)) {
-            return null;
-          }
-          return {
-            moodLabel: parsed.moodLabel,
-            moodScore: clamp(parsed.moodScore, -1, 1),
-            keywords: Array.isArray(parsed.keywords) ? parsed.keywords : []
-          };
-        } catch {
-          return null;
-        }
-      }
 
       function analyzeMoodLocal(text) {
         const tokens = tokenize(text);
@@ -561,9 +486,6 @@
         return polarity <= -0.6 ? "sad" : "stressed";
       }
 
-      function getOpenAiKey() {
-        return localStorage.getItem(OPENAI_KEY_STORAGE);
-      }
 
       function getDominantMood(counts) {
         const entries = Object.entries(counts);
