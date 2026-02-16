@@ -227,12 +227,17 @@
           state.analysisNotice = null;
           renderApp();
           const result = await analyzeMoodWithApi(text);
+          const notices = [];
+          if (result.puterError) {
+            notices.push(`Puter AI failed (${result.puterError}).`);
+          }
           if (result.source === "local") {
-            state.analysisNotice = "Sentiment API unavailable, used offline analysis.";
+            notices.push("Sentiment API unavailable, used offline analysis.");
           }
           if (result.crisis) {
-            state.analysisNotice = "If you feel unsafe, please reach out for help right now.";
+            notices.push("If you feel unsafe, please reach out for help right now.");
           }
+          state.analysisNotice = notices.length > 0 ? notices.join(" ") : null;
           const exercise = pickExercise(result.moodLabel);
           const entry = {
             id: generateId(),
@@ -472,10 +477,10 @@
       }
 
       async function analyzeMoodWithApi(text) {
-        const puterResult = await analyzeMoodWithPuter(text);
-        if (puterResult) {
+        const puterAttempt = await analyzeMoodWithPuter(text);
+        if (puterAttempt.result) {
           return {
-            ...applyCrisisOverride(applyDistressOverride(puterResult, text), text),
+            ...applyCrisisOverride(applyDistressOverride(puterAttempt.result, text), text),
             source: "puter"
           };
         }
@@ -483,29 +488,31 @@
         if (sentimResult) {
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
-            source: "sentim"
+            source: "sentim",
+            puterError: puterAttempt.error || "unknown"
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
-          source: "local"
+          source: "local",
+          puterError: puterAttempt.error || "unknown"
         };
       }
 
       async function analyzeMoodWithPuter(text) {
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
-          return null;
+          return { result: null, error: "sdk unavailable" };
         }
         const prompt = `You are a sentiment classifier for a teen journal app. Respond with strict JSON only. Required keys: moodLabel (happy|neutral|stressed|sad|angry), moodScore (-1 to 1), keywords (array of lowercase words). Text: """${text}"""`;
         try {
           const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
           const parsed = parsePuterResponse(response);
           if (!parsed) {
-            return null;
+            return { result: null, error: "invalid response" };
           }
-          return parsed;
-        } catch {
-          return null;
+          return { result: parsed, error: null };
+        } catch (error) {
+          return { result: null, error: error?.message || "request failed" };
         }
       }
 
