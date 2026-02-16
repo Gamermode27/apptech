@@ -529,10 +529,26 @@
             raw = response.text;
           } else if (typeof response.content === "string") {
             raw = response.content;
+          } else if (Array.isArray(response.content)) {
+            raw = response.content.map((item) => (typeof item === "string" ? item : item?.text || item?.content || "")).join(" ");
           } else if (typeof response.result === "string") {
             raw = response.result;
           } else if (typeof response.result === "number") {
             raw = String(response.result);
+          } else if (Array.isArray(response.choices)) {
+            const first = response.choices[0];
+            if (typeof first?.message?.content === "string") {
+              raw = first.message.content;
+            } else if (typeof first?.text === "string") {
+              raw = first.text;
+            }
+          }
+        }
+        if (!raw && response && typeof response === "object") {
+          try {
+            raw = JSON.stringify(response);
+          } catch {
+            raw = "";
           }
         }
         if (!raw) {
