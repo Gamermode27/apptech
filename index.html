@@ -506,9 +506,14 @@
         if (typeof puter === "undefined" || !puter?.ai?.chat) {
           return { result: null, error: "sdk unavailable", debug: "No puter.ai.chat found" };
         }
-        const prompt = `Return ONLY a decimal number between -1 and 1 with two decimal places (example: -0.73). No extra text. Avoid 0 unless the text is truly neutral. Text: """${text}"""`;
+        const prompt = [
+          "You are a sentiment scorer for a teen journal app.",
+          "Return ONLY a single decimal number between -1 and 1.",
+          "No extra words, no punctuation, no code blocks.",
+          `Text: """${text}"""`
+        ].join("\n");
         try {
-          const response = await puter.ai.chat(prompt, { model: "gpt-5-nano" });
+          const response = await puter.ai.chat(prompt, { model: "gpt-5-nano", temperature: 0 });
           const parsed = parsePuterScore(response, text);
           if (!parsed) {
             return { result: null, error: "invalid response", debug: summarizePuterResponse(response) };
@@ -580,7 +585,9 @@
             current.output,
             current.value,
             current.score,
-            current.data
+            current.data,
+            current.choices?.[0]?.message?.content,
+            current.choices?.[0]?.text
           ];
           for (let i = candidates.length - 1; i >= 0; i -= 1) {
             stack.push(candidates[i]);
