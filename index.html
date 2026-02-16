@@ -9,6 +9,7 @@
     <div id="app"></div>
     <script>
       const STORAGE_KEY = "teen-journal-entries";
+      const SENTIMENT_API_URL = "https://sentim-api.herokuapp.com/api/v1/";
 
       const exercises = [
         {
@@ -83,7 +84,9 @@
         screen: "home",
         entries: loadEntries(),
         selectedEntryId: null,
-        lastResult: null
+        lastResult: null,
+        analyzing: false,
+        analysisNotice: null
       };
 
       const appRoot = document.getElementById("app") || document.body;
@@ -147,14 +150,24 @@
         wrapper.appendChild(textarea);
 
         const button = document.createElement("button");
-        button.textContent = "Analyze & Save";
+        button.textContent = state.analyzing ? "Analyzing..." : "Analyze & Save";
         button.className = "primary";
-        button.addEventListener("click", () => {
+        button.disabled = state.analyzing;
+        button.addEventListener("click", async () => {
+          if (state.analyzing) {
+            return;
+          }
           const text = textarea.value.trim();
           if (!text) {
             return;
           }
-          const result = analyzeMood(text);
+          state.analyzing = true;
+          state.analysisNotice = null;
+          renderApp();
+          const result = await analyzeMoodWithApi(text);
+          if (result.source === "local") {
+            state.analysisNotice = "Sentiment API unavailable, used offline analysis.";
+          }
           const exercise = pickExercise(result.moodLabel);
           const entry = {
             id: generateId(),
@@ -169,10 +182,17 @@
           saveEntries(state.entries);
           state.lastResult = { entry, exercise };
           state.selectedEntryId = entry.id;
-          textarea.value = "";
+          state.analyzing = false;
           renderApp();
         });
         wrapper.appendChild(button);
+
+        if (state.analyzing || state.analysisNotice) {
+          const status = document.createElement("p");
+          status.className = "status";
+          status.textContent = state.analyzing ? "Analyzing sentiment..." : state.analysisNotice;
+          wrapper.appendChild(status);
+        }
 
         const helpBanner = buildHelpBanner();
         if (helpBanner) {
@@ -377,7 +397,33 @@
         return button;
       }
 
-      function analyzeMood(text) {
+      async function analyzeMoodWithApi(text) {
+        try {
+          const response = await fetch(SENTIMENT_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+          });
+          const data = await response.json();
+          const polarity = Number.parseFloat(data?.result?.polarity);
+          const type = data?.result?.type;
+          if (!Number.isFinite(polarity) || !type) {
+            throw new Error("Bad sentiment response");
+          }
+          const keywords = extractKeywords(text);
+          const moodLabel = mapSentimentToMood(type, polarity, keywords);
+          return {
+            moodLabel,
+            moodScore: clamp(polarity, -1, 1),
+            keywords,
+            source: "api"
+          };
+        } catch {
+          return { ...analyzeMoodLocal(text), source: "local" };
+        }
+      }
+
+      function analyzeMoodLocal(text) {
         const tokens = tokenize(text);
         const counts = {};
         const matched = [];
@@ -398,6 +444,38 @@
           moodScore: score,
           keywords: Array.from(new Set(matched))
         };
+      }
+
+      function extractKeywords(text) {
+        const tokens = tokenize(text);
+        const matched = [];
+        tokens.forEach((token) => {
+          Object.values(moodKeywords).forEach((keywords) => {
+            if (keywords.includes(token)) {
+              matched.push(token);
+            }
+          });
+        });
+        return Array.from(new Set(matched));
+      }
+
+      function mapSentimentToMood(type, polarity, keywords) {
+        if (type === "positive") {
+          return "happy";
+        }
+        if (type === "neutral") {
+          return "neutral";
+        }
+        const keywordSet = new Set(keywords);
+        const hasAngry = moodKeywords.angry.some((word) => keywordSet.has(word));
+        if (hasAngry) {
+          return "angry";
+        }
+        const hasStressed = moodKeywords.stressed.some((word) => keywordSet.has(word));
+        if (hasStressed) {
+          return "stressed";
+        }
+        return polarity <= -0.6 ? "sad" : "stressed";
       }
 
       function getDominantMood(counts) {
@@ -562,6 +640,15 @@
             padding: 10px 16px;
             border-radius: 10px;
             cursor: pointer;
+            font-weight: 600;
+          }
+          .primary:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+          }
+          .status {
+            margin: 0;
+            color: #4c5172;
             font-weight: 600;
           }
           .result {
