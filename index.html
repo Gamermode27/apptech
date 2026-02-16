@@ -179,7 +179,8 @@
             moodLabel: result.moodLabel,
             moodScore: result.moodScore,
             keywords: result.keywords,
-            exerciseId: exercise.id
+            exerciseId: exercise.id,
+            moodSource: result.source
           };
           state.entries.unshift(entry);
           saveEntries(state.entries);
@@ -343,6 +344,10 @@
           wrapper.appendChild(keywords);
         }
 
+        const source = document.createElement("p");
+        source.textContent = `Sentiment source: ${formatSentimentSource(entry.moodSource)}`;
+        wrapper.appendChild(source);
+
         const exerciseBox = document.createElement("div");
         exerciseBox.className = "exercise";
         const exerciseTitle = document.createElement("h4");
@@ -500,6 +505,16 @@
           return "stressed";
         }
         return polarity <= -0.6 ? "sad" : "stressed";
+      }
+
+      function formatSentimentSource(source) {
+        if (source === "sentim") {
+          return "Sentim API";
+        }
+        if (source === "local") {
+          return "offline analysis";
+        }
+        return "unknown";
       }
 
 
