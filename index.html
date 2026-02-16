@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Teen Journal</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      const STORAGE_KEY = "teen-journal-entries";
+
+      const exercises = [
+        {
+          id: "breath-4-6",
+          title: "4-6 Breathing",
+          steps: ["Inhale for 4 seconds", "Hold for 2 seconds", "Exhale for 6 seconds", "Repeat 5 times"],
+          durationSec: 120,
+          type: "breathing"
+        },
+        {
+          id: "ground-5-4-3-2-1",
+          title: "5-4-3-2-1 Grounding",
+          steps: ["Name 5 things you see", "Name 4 things you feel", "Name 3 things you hear", "Name 2 things you smell", "Name 1 thing you taste"],
+          durationSec: 180,
+          type: "grounding"
+        },
+        {
+          id: "stretch-reset",
+          title: "Quick Stretch Reset",
+          steps: ["Roll shoulders 5 times", "Stretch arms overhead", "Slow neck tilt left and right", "Shake out hands"],
+          durationSec: 120,
+          type: "stretch"
+        },
+        {
+          id: "body-scan",
+          title: "Mini Body Scan",
+          steps: ["Close your eyes", "Notice forehead and jaw", "Relax shoulders", "Soften stomach", "Relax legs"],
+          durationSec: 150,
+          type: "grounding"
+        },
+        {
+          id: "cool-down",
+          title: "Cool Down Breath",
+          steps: ["Inhale slowly for 5 seconds", "Exhale slowly for 7 seconds", "Repeat 6 times"],
+          durationSec: 120,
+          type: "breathing"
+        },
+        {
+          id: "self-kindness",
+          title: "Self-Kindness Check",
+          steps: ["Put a hand on your chest", "Say one kind sentence to yourself", "List one small win today"],
+          durationSec: 120,
+          type: "grounding"
+        }
+      ];
+
+      const moodKeywords = {
+        happy: ["happy", "excited", "great", "good", "proud", "grateful", "joy", "love", "relaxed", "fun", "calm", "content"],
+        neutral: ["okay", "fine", "normal", "meh", "average", "steady"],
+        stressed: ["stressed", "overwhelmed", "anxious", "worried", "pressure", "tired", "busy"],
+        sad: ["sad", "down", "lonely", "hurt", "cry", "upset", "hopeless", "empty"],
+        angry: ["angry", "mad", "furious", "annoyed", "frustrated", "rage"]
+      };
+
+      const moodScores = {
+        happy: 0.7,
+        neutral: 0,
+        stressed: -0.3,
+        sad: -0.6,
+        angry: -0.8
+      };
+
+      const moodExerciseMap = {
+        happy: ["stretch-reset", "ground-5-4-3-2-1"],
+        neutral: ["breath-4-6"],
+        stressed: ["breath-4-6", "body-scan"],
+        sad: ["self-kindness", "ground-5-4-3-2-1"],
+        angry: ["cool-down", "breath-4-6"]
+      };
+
+      const state = {
+        screen: "home",
+        entries: loadEntries(),
+        selectedEntryId: null,
+        lastResult: null
+      };
+
+      const appRoot = document.getElementById("app") || document.body;
+
+      renderApp();
+
+      function renderApp() {
+        appRoot.innerHTML = "";
+        appRoot.appendChild(buildStyles());
+
+        const container = document.createElement("div");
+        container.className = "app";
+
+        const header = document.createElement("header");
+        header.className = "app-header";
+
+        const title = document.createElement("h1");
+        title.textContent = "Teen Journal";
+        header.appendChild(title);
+
+        const nav = document.createElement("nav");
+        nav.className = "app-nav";
+        nav.appendChild(makeNavButton("Home", "home"));
+        nav.appendChild(makeNavButton("History", "history"));
+        nav.appendChild(makeNavButton("Trends", "trends"));
+        nav.appendChild(makeNavButton("Help", "help"));
+        header.appendChild(nav);
+
+        container.appendChild(header);
+
+        const screen = document.createElement("main");
+        screen.className = "app-screen";
+        if (state.screen === "home") {
+          screen.appendChild(renderHome());
+        }
+        if (state.screen === "history") {
+          screen.appendChild(renderHistory());
+        }
+        if (state.screen === "trends") {
+          screen.appendChild(renderTrends());
+        }
+        if (state.screen === "help") {
+          screen.appendChild(renderHelp());
+        }
+
+        container.appendChild(screen);
+        appRoot.appendChild(container);
+      }
+
+      function renderHome() {
+        const wrapper = document.createElement("section");
+        wrapper.className = "card";
+
+        const intro = document.createElement("p");
+        intro.textContent = "Write what’s on your mind and get a calming exercise.";
+        wrapper.appendChild(intro);
+
+        const textarea = document.createElement("textarea");
+        textarea.placeholder = "Write what’s on your mind…";
+        textarea.className = "input";
+        wrapper.appendChild(textarea);
+
+        const button = document.createElement("button");
+        button.textContent = "Analyze & Save";
+        button.className = "primary";
+        button.addEventListener("click", () => {
+          const text = textarea.value.trim();
+          if (!text) {
+            return;
+          }
+          const result = analyzeMood(text);
+          const exercise = pickExercise(result.moodLabel);
+          const entry = {
+            id: generateId(),
+            text,
+            createdAt: new Date().toISOString(),
+            moodLabel: result.moodLabel,
+            moodScore: result.moodScore,
+            keywords: result.keywords,
+            exerciseId: exercise.id
+          };
+          state.entries.unshift(entry);
+          saveEntries(state.entries);
+          state.lastResult = { entry, exercise };
+          state.selectedEntryId = entry.id;
+          textarea.value = "";
+          renderApp();
+        });
+        wrapper.appendChild(button);
+
+        const helpBanner = buildHelpBanner();
+        if (helpBanner) {
+          wrapper.appendChild(helpBanner);
+        }
+
+        if (state.lastResult) {
+          wrapper.appendChild(renderResult(state.lastResult.entry, state.lastResult.exercise));
+        }
+
+        return wrapper;
+      }
+
+      function renderHistory() {
+        const wrapper = document.createElement("section");
+        wrapper.className = "card history";
+
+        const heading = document.createElement("h2");
+        heading.textContent = "History";
+        wrapper.appendChild(heading);
+
+        if (state.entries.length === 0) {
+          const empty = document.createElement("p");
+          empty.textContent = "No entries yet.";
+          wrapper.appendChild(empty);
+          return wrapper;
+        }
+
+        const list = document.createElement("div");
+        list.className = "history-list";
+        state.entries.forEach((entry) => {
+          const row = document.createElement("button");
+          row.className = entry.id === state.selectedEntryId ? "history-item active" : "history-item";
+          row.addEventListener("click", () => {
+            state.selectedEntryId = entry.id;
+            renderApp();
+          });
+
+          const top = document.createElement("div");
+          top.className = "history-top";
+          const date = document.createElement("span");
+          date.textContent = formatDate(entry.createdAt);
+          const mood = document.createElement("span");
+          mood.textContent = entry.moodLabel;
+          top.appendChild(date);
+          top.appendChild(mood);
+
+          const preview = document.createElement("div");
+          preview.className = "history-preview";
+          preview.textContent = entry.text.length > 60 ? `${entry.text.slice(0, 60)}…` : entry.text;
+
+          row.appendChild(top);
+          row.appendChild(preview);
+          list.appendChild(row);
+        });
+        wrapper.appendChild(list);
+
+        const detail = state.entries.find((entry) => entry.id === state.selectedEntryId);
+        if (detail) {
+          wrapper.appendChild(renderResult(detail, getExerciseById(detail.exerciseId), true));
+        }
+
+        return wrapper;
+      }
+
+      function renderTrends() {
+        const wrapper = document.createElement("section");
+        wrapper.className = "card";
+
+        const heading = document.createElement("h2");
+        heading.textContent = "Trends";
+        wrapper.appendChild(heading);
+
+        const stats = getWeeklyStats(state.entries);
+        const summary = document.createElement("p");
+        summary.textContent = `Your week: mostly ${stats.summaryLabel}`;
+        wrapper.appendChild(summary);
+
+        const list = document.createElement("div");
+        list.className = "trend-list";
+        stats.days.forEach((day) => {
+          const row = document.createElement("div");
+          row.className = "trend-row";
+          const label = document.createElement("span");
+          label.textContent = day.label;
+          const value = document.createElement("span");
+          value.textContent = day.count === 0 ? "No entries" : `Avg score ${day.avg.toFixed(2)} (${day.count})`;
+          row.appendChild(label);
+          row.appendChild(value);
+          list.appendChild(row);
+        });
+        wrapper.appendChild(list);
+
+        const helpBanner = buildHelpBanner();
+        if (helpBanner) {
+          wrapper.appendChild(helpBanner);
+        }
+
+        return wrapper;
+      }
+
+      function renderHelp() {
+        const wrapper = document.createElement("section");
+        wrapper.className = "card";
+
+        const heading = document.createElement("h2");
+        heading.textContent = "Help";
+        wrapper.appendChild(heading);
+
+        const text = document.createElement("p");
+        text.textContent = "Talk to a friend, parent, teacher, or coach if you need support.";
+        wrapper.appendChild(text);
+
+        const list = document.createElement("ul");
+        list.className = "help-list";
+        ["Reach out to someone you trust", "Take a short walk outside", "If you feel unsafe, contact local support"].forEach((item) => {
+          const li = document.createElement("li");
+          li.textContent = item;
+          list.appendChild(li);
+        });
+        wrapper.appendChild(list);
+
+        const hotline = document.createElement("p");
+        hotline.textContent = "If you are in the US, you can call or text 988 for the Suicide & Crisis Lifeline.";
+        wrapper.appendChild(hotline);
+
+        return wrapper;
+      }
+
+      function renderResult(entry, exercise, showFullText = false) {
+        const wrapper = document.createElement("section");
+        wrapper.className = "result";
+
+        const heading = document.createElement("h3");
+        heading.textContent = "Mood Result";
+        wrapper.appendChild(heading);
+
+        const mood = document.createElement("p");
+        mood.textContent = `Mood: ${entry.moodLabel} (score ${entry.moodScore.toFixed(2)})`;
+        wrapper.appendChild(mood);
+
+        if (entry.keywords && entry.keywords.length > 0) {
+          const keywords = document.createElement("p");
+          keywords.textContent = `Keywords: ${entry.keywords.join(", ")}`;
+          wrapper.appendChild(keywords);
+        }
+
+        const exerciseBox = document.createElement("div");
+        exerciseBox.className = "exercise";
+        const exerciseTitle = document.createElement("h4");
+        exerciseTitle.textContent = exercise.title;
+        exerciseBox.appendChild(exerciseTitle);
+        const steps = document.createElement("ol");
+        exercise.steps.forEach((step) => {
+          const li = document.createElement("li");
+          li.textContent = step;
+          steps.appendChild(li);
+        });
+        exerciseBox.appendChild(steps);
+        const meta = document.createElement("p");
+        meta.textContent = `${exercise.type} · ${exercise.durationSec} sec`;
+        exerciseBox.appendChild(meta);
+        wrapper.appendChild(exerciseBox);
+
+        if (showFullText) {
+          const text = document.createElement("div");
+          text.className = "entry-text";
+          text.textContent = entry.text;
+          wrapper.appendChild(text);
+        }
+
+        return wrapper;
+      }
+
+      function buildHelpBanner() {
+        if (!shouldShowHelp(state.entries)) {
+          return null;
+        }
+        const banner = document.createElement("div");
+        banner.className = "help-banner";
+        banner.textContent = "You have been feeling low recently. Please reach out for help.";
+        return banner;
+      }
+
+      function shouldShowHelp(entries) {
+        const recent = entries.slice(0, 4);
+        if (recent.length < 3) {
+          return false;
+        }
+        const badCount = recent.filter((entry) => entry.moodScore <= -0.2).length;
+        return badCount >= 3;
+      }
+
+      function makeNavButton(label, screenName) {
+        const button = document.createElement("button");
+        button.textContent = label;
+        button.className = state.screen === screenName ? "nav active" : "nav";
+        button.addEventListener("click", () => {
+          state.screen = screenName;
+          renderApp();
+        });
+        return button;
+      }
+
+      function analyzeMood(text) {
+        const tokens = tokenize(text);
+        const counts = {};
+        const matched = [];
+
+        tokens.forEach((token) => {
+          Object.entries(moodKeywords).forEach(([label, keywords]) => {
+            if (keywords.includes(token)) {
+              counts[label] = (counts[label] || 0) + 1;
+              matched.push(token);
+            }
+          });
+        });
+
+        const label = getDominantMood(counts);
+        const score = computeMoodScore(counts, label);
+        return {
+          moodLabel: label,
+          moodScore: score,
+          keywords: Array.from(new Set(matched))
+        };
+      }
+
+      function getDominantMood(counts) {
+        const entries = Object.entries(counts);
+        if (entries.length === 0) {
+          return "neutral";
+        }
+        entries.sort((a, b) => b[1] - a[1]);
+        return entries[0][0];
+      }
+
+      function computeMoodScore(counts, label) {
+        const positive = counts.happy || 0;
+        const negative = (counts.stressed || 0) + (counts.sad || 0) + (counts.angry || 0);
+        const total = positive + negative;
+        let score = total > 0 ? (positive - negative) / total : 0;
+        const base = moodScores[label] ?? 0;
+        score = (score + base) / 2;
+        return clamp(score, -1, 1);
+      }
+
+      function tokenize(text) {
+        const matches = text.toLowerCase().match(/[a-z']+/g);
+        return matches || [];
+      }
+
+      function pickExercise(moodLabel) {
+        const pool = moodExerciseMap[moodLabel] || moodExerciseMap.neutral;
+        const id = pool[Math.floor(Math.random() * pool.length)];
+        return getExerciseById(id);
+      }
+
+      function getExerciseById(id) {
+        return exercises.find((exercise) => exercise.id === id) || exercises[0];
+      }
+
+      function loadEntries() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            return [];
+          }
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            return [];
+          }
+          return parsed;
+        } catch {
+          return [];
+        }
+      }
+
+      function saveEntries(entries) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      }
+
+      function formatDate(isoString) {
+        const date = new Date(isoString);
+        return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      }
+
+      function getWeeklyStats(entries) {
+        const days = [];
+        const labelCounts = {};
+        for (let i = 6; i >= 0; i -= 1) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          const key = date.toISOString().slice(0, 10);
+          const dayEntries = entries.filter((entry) => entry.createdAt.slice(0, 10) === key);
+          const avg = dayEntries.length
+            ? dayEntries.reduce((sum, entry) => sum + entry.moodScore, 0) / dayEntries.length
+            : 0;
+          dayEntries.forEach((entry) => {
+            labelCounts[entry.moodLabel] = (labelCounts[entry.moodLabel] || 0) + 1;
+          });
+          days.push({
+            label: date.toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" }),
+            avg,
+            count: dayEntries.length
+          });
+        }
+        const summaryLabel = getDominantMood(labelCounts);
+        return { days, summaryLabel };
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+      }
+
+      function generateId() {
+        if (typeof crypto !== "undefined" && crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        return `id-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+      }
+
+      function buildStyles() {
+        const style = document.createElement("style");
+        style.textContent = `
+          :root {
+            color-scheme: light;
+            font-family: "Segoe UI", system-ui, sans-serif;
+          }
+          body {
+            margin: 0;
+            background: #f5f6fb;
+            color: #1d1f2a;
+          }
+          .app {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 24px;
+          }
+          .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+          }
+          .app-nav {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+          }
+          .nav {
+            border: 1px solid #c9d2f0;
+            background: #ffffff;
+            color: #2a2f4a;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+          }
+          .nav.active {
+            background: #4f66d0;
+            color: #ffffff;
+            border-color: #4f66d0;
+          }
+          .card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 12px 24px rgba(38, 51, 110, 0.08);
+            display: grid;
+            gap: 16px;
+          }
+          .input {
+            width: 100%;
+            min-height: 140px;
+            border-radius: 12px;
+            border: 1px solid #c9d2f0;
+            padding: 12px;
+            font-size: 16px;
+            font-family: inherit;
+          }
+          .primary {
+            align-self: flex-start;
+            background: #4f66d0;
+            color: #ffffff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+          }
+          .result {
+            border-top: 1px solid #e2e7fb;
+            padding-top: 16px;
+            display: grid;
+            gap: 12px;
+          }
+          .exercise {
+            background: #f2f5ff;
+            border-radius: 12px;
+            padding: 12px;
+          }
+          .entry-text {
+            padding: 12px;
+            background: #f8f9ff;
+            border-radius: 12px;
+            white-space: pre-wrap;
+          }
+          .history {
+            grid-template-columns: 1fr;
+          }
+          .history-list {
+            display: grid;
+            gap: 12px;
+          }
+          .history-item {
+            border: 1px solid #e2e7fb;
+            background: #ffffff;
+            padding: 12px;
+            border-radius: 12px;
+            text-align: left;
+            cursor: pointer;
+          }
+          .history-item.active {
+            border-color: #4f66d0;
+            box-shadow: 0 4px 12px rgba(79, 102, 208, 0.16);
+          }
+          .history-top {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            color: #2a2f4a;
+          }
+          .history-preview {
+            margin-top: 6px;
+            color: #4c5172;
+          }
+          .trend-list {
+            display: grid;
+            gap: 8px;
+          }
+          .trend-row {
+            display: flex;
+            justify-content: space-between;
+            background: #f7f8fe;
+            padding: 10px 12px;
+            border-radius: 10px;
+          }
+          .help-banner {
+            background: #fff0f0;
+            color: #89243a;
+            border-radius: 10px;
+            padding: 12px;
+            font-weight: 600;
+          }
+          .help-list {
+            padding-left: 18px;
+            margin: 0;
+          }
+          @media (min-width: 860px) {
+            .history {
+              grid-template-columns: 1.1fr 1fr;
+            }
+          }
+        `;
+        return style;
+      }
+    </script>
+  </body>
+</html>
