@@ -479,7 +479,7 @@
 
       async function analyzeMoodWithApi(text) {
         const puterAttempt = await analyzeMoodWithPuter(text);
-        if (puterAttempt.result) {
+        if (puterAttempt.result && !isLikelyNeutral(puterAttempt.result)) {
           return {
             ...applyCrisisOverride(applyDistressOverride(puterAttempt.result, text), text),
             source: "puter"
@@ -490,14 +490,14 @@
           return {
             ...applyCrisisOverride(applyDistressOverride(sentimResult, text), text),
             source: "sentim",
-            puterError: puterAttempt.error || "unknown",
+            puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
             puterDebug: puterAttempt.debug || ""
           };
         }
         return {
           ...applyCrisisOverride(applyDistressOverride(analyzeMoodLocal(text), text), text),
           source: "local",
-          puterError: puterAttempt.error || "unknown",
+          puterError: puterAttempt.result ? "neutral override" : puterAttempt.error || "unknown",
           puterDebug: puterAttempt.debug || ""
         };
       }
@@ -591,6 +591,11 @@
           }
         }
         return "";
+      }
+
+      function isLikelyNeutral(result) {
+        const score = typeof result?.moodScore === "number" ? result.moodScore : 0;
+        return Math.abs(score) < 0.05;
       }
 
       function summarizePuterResponse(response) {
